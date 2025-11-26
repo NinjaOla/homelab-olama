@@ -1,0 +1,50 @@
+#!/bin/bash
+# Install NVIDIA driver inside LXC container
+# Usage: ./install-nvidia-in-container.sh <container_id>
+
+CTID=$1
+
+if [ -z "$CTID" ]; then
+    echo "Usage: $0 <container_id>"
+    exit 1
+fi
+
+# Detect host driver version
+HOST_DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)
+if [ -z "$HOST_DRIVER" ]; then
+    echo "Error: Cannot detect NVIDIA driver version on host"
+    exit 1
+fi
+
+DRIVER_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/${HOST_DRIVER}/NVIDIA-Linux-x86_64-${HOST_DRIVER}.run"
+
+echo "Host driver version: $HOST_DRIVER"
+echo "Installing matching driver in container $CTID..."
+
+# Check container is running
+if ! pct status $CTID | grep -q "running"; then
+    echo "Starting container $CTID..."
+    pct start $CTID
+    sleep 3
+fi
+
+# Install inside container
+pct exec $CTID -- bash -c "
+set -e
+echo '==> Downloading NVIDIA driver ${HOST_DRIVER}...'
+cd /tmp
+wget -q --show-progress ${DRIVER_URL}
+chmod +x NVIDIA-Linux-x86_64-${HOST_DRIVER}.run
+
+echo '==> Installing driver (64-bit only)...'
+./NVIDIA-Linux-x86_64-${HOST_DRIVER}.run --silent --no-kernel-module --no-questions --no-install-compat32-libs
+
+echo '==> Cleaning up...'
+rm -f /tmp/NVIDIA-Linux-x86_64-${HOST_DRIVER}.run
+
+echo '==> Verifying installation...'
+nvidia-smi
+"
+
+echo ""
+echo "✓ Driver $HOST_DRIVER installed in container $CTID"
